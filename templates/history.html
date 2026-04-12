@@ -1,0 +1,259 @@
+{% extends 'base.html' %}
+{% block title %}History{% endblock %}
+
+{% block content %}
+<div class="header">
+    <h1>📚 Conversation Sessions</h1>
+</div>
+
+<div class="sessions-container">
+    <div id="sessions-list" class="sessions-list">
+        <!-- Sessions will be loaded here -->
+    </div>
+</div>
+
+<div id="session-detail" class="session-detail" style="display: none;">
+    <div class="session-header">
+        <h2 id="session-title"></h2>
+        <button id="continue-btn" class="continue-btn">🎙️ Continue Conversation</button>
+        <button id="export-btn" class="export-btn">📄 Export PDF</button>
+        <button id="delete-btn" class="delete-btn">🗑️ Delete Session</button>
+        <button id="back-btn" class="back-btn">← Back to Sessions</button>
+    </div>
+    <div id="interactions-container" class="interactions-container">
+        <!-- Interactions will be loaded here -->
+    </div>
+</div>
+
+<script>
+    let currentSessionId = null;
+
+    window.onload = () => {
+        loadSessions();
+    };
+
+    async function loadSessions() {
+        try {
+            const res = await fetch('/sessions');
+            const sessions = await res.json();
+            renderSessions(sessions);
+        } catch (e) {
+            console.error('Sessions load error', e);
+        }
+    }
+
+    function renderSessions(sessions) {
+        const container = document.getElementById('sessions-list');
+        if (!sessions.length) {
+            container.innerHTML = '<p>No conversation sessions yet. Start talking to Alexa!</p>';
+            return;
+        }
+
+        container.innerHTML = sessions.map(session => `
+            <div class="session-card" onclick="loadSession(${session.id})">
+                <h3>${session.title}</h3>
+                <div class="session-meta">
+                    <span>${session.interaction_count} interactions</span>
+                    <span>${new Date(session.created_at).toLocaleDateString()}</span>
+                </div>
+            </div>
+        `).join('');
+    }
+
+    async function loadSession(sessionId) {
+        currentSessionId = sessionId;
+        try {
+            const res = await fetch(`/history/${sessionId}`);
+            const interactions = await res.json();
+            
+            document.getElementById('session-title').textContent = `Session ${sessionId}`;
+            document.getElementById('continue-btn').onclick = () => continueConversation(sessionId);
+            document.getElementById('export-btn').onclick = () => window.open(`/export/${sessionId}`, '_blank');
+            document.getElementById('delete-btn').onclick = () => deleteSession(sessionId);
+            document.getElementById('back-btn').onclick = showSessionsList;
+            
+            const container = document.getElementById('interactions-container');
+            container.innerHTML = interactions.map(item => `
+                <div class="interaction-item">
+                    <div class="question">
+                        <strong>Q:</strong> ${item.question}
+                    </div>
+                    <div class="answer">
+                        <strong>A:</strong> ${item.answer}
+                    </div>
+                    <div class="timestamp">${new Date(item.timestamp).toLocaleString()}</div>
+                </div>
+            `).join('');
+            
+            document.getElementById('sessions-list').style.display = 'none';
+            document.getElementById('session-detail').style.display = 'block';
+        } catch (e) {
+            console.error('Session load error', e);
+        }
+    }
+
+    function continueConversation(sessionId) {
+        // Store the session ID in localStorage to be picked up by the main page
+        localStorage.setItem('continueSessionId', sessionId);
+        // Redirect to the main alexa page
+        window.location.href = '/alexa';
+    }
+
+    async function deleteSession(sessionId) {
+        if (!confirm('Are you sure you want to delete this session?')) return;
+        
+        try {
+            const res = await fetch(`/session/${sessionId}`, { method: 'DELETE' });
+            if (res.ok) {
+                showSessionsList();
+                loadSessions();
+            } else {
+                alert('Failed to delete session');
+            }
+        } catch (e) {
+            console.error('Delete error', e);
+            alert('Failed to delete session');
+        }
+    }
+
+    function showSessionsList() {
+        document.getElementById('session-detail').style.display = 'none';
+        document.getElementById('sessions-list').style.display = 'block';
+        currentSessionId = null;
+    }
+</script>
+
+<style>
+.sessions-container {
+    padding: 20px;
+}
+
+.sessions-list {
+    display: grid;
+    grid-template-columns: repeat(auto-fill, minmax(300px, 1fr));
+    gap: 20px;
+}
+
+.session-card {
+    background: var(--card-bg);
+    border: 1px solid rgba(255, 255, 255, 0.05);
+    border-radius: 12px;
+    padding: 20px;
+    cursor: pointer;
+    transition: all 0.3s ease;
+}
+
+.session-card:hover {
+    border-color: var(--accent);
+    transform: translateY(-2px);
+}
+
+.session-card h3 {
+    margin: 0 0 10px 0;
+    color: var(--accent);
+    font-size: 18px;
+}
+
+.session-meta {
+    display: flex;
+    justify-content: space-between;
+    font-size: 12px;
+    color: var(--text-dim);
+}
+
+.session-detail {
+    padding: 20px;
+}
+
+.session-header {
+    display: flex;
+    align-items: center;
+    gap: 15px;
+    margin-bottom: 20px;
+    flex-wrap: wrap;
+}
+
+.session-header h2 {
+    margin: 0;
+    color: var(--accent);
+}
+
+.continue-btn, .export-btn, .delete-btn, .back-btn {
+    padding: 8px 16px;
+    border: none;
+    border-radius: 6px;
+    cursor: pointer;
+    font-size: 14px;
+    transition: all 0.3s ease;
+}
+
+.continue-btn {
+    background: var(--accent);
+    color: #060a12;
+}
+
+.continue-btn:hover {
+    background: var(--accent-glow);
+}
+
+.export-btn {
+    background: rgba(0, 229, 255, 0.1);
+    color: var(--accent);
+    border: 1px solid var(--accent);
+}
+
+.export-btn:hover {
+    background: var(--accent);
+    color: #060a12;
+}
+
+.delete-btn {
+    background: rgba(255, 0, 0, 0.1);
+    color: #ff6b6b;
+    border: 1px solid rgba(255, 0, 0, 0.3);
+}
+
+.delete-btn:hover {
+    background: rgba(255, 0, 0, 0.2);
+}
+
+.back-btn {
+    background: rgba(255, 255, 255, 0.05);
+    color: var(--text);
+    border: 1px solid rgba(255, 255, 255, 0.1);
+}
+
+.back-btn:hover {
+    background: rgba(255, 255, 255, 0.1);
+}
+
+.interactions-container {
+    display: flex;
+    flex-direction: column;
+    gap: 20px;
+}
+
+.interaction-item {
+    background: var(--card-bg);
+    border: 1px solid rgba(255, 255, 255, 0.05);
+    border-radius: 12px;
+    padding: 20px;
+}
+
+.question {
+    margin-bottom: 10px;
+    color: var(--text);
+}
+
+.answer {
+    margin-bottom: 10px;
+    color: var(--text-dim);
+}
+
+.timestamp {
+    font-size: 12px;
+    color: var(--text-dim);
+    text-align: right;
+}
+</style>
+{% endblock %}

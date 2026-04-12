@@ -1,0 +1,81 @@
+{% extends 'base.html' %}
+{% block title %}{{ quiz.title }} — attempts{% endblock %}
+{% block content %}
+<style>
+    .main { overflow-y: auto; height: 100vh; padding-bottom: 48px; }
+    .page-head { margin-bottom: 20px; }
+    .page-head h1 { font-size: 22px; font-weight: 800; color: var(--accent); margin-bottom: 8px; }
+    .back { font-size: 14px; color: var(--text-dim); text-decoration: none; display: inline-block; margin-bottom: 12px; }
+    .back:hover { color: var(--accent); }
+    .privacy { font-size: 13px; color: var(--text-dim); line-height: 1.5; margin-bottom: 20px; max-width: 720px; }
+    .meta { font-size: 14px; color: var(--text-dim); margin-bottom: 20px; }
+    .meta code { background: rgba(0,229,255,0.08); padding: 2px 8px; border-radius: 6px; color: var(--accent); font-size: 12px; }
+    .attempt-table-wrap { overflow-x: auto; max-width: 960px; border: 1px solid rgba(255,255,255,0.06); border-radius: 16px; }
+    table { width: 100%; border-collapse: collapse; font-size: 14px; }
+    th, td { text-align: left; padding: 12px 14px; border-bottom: 1px solid rgba(255,255,255,0.06); }
+    th { color: var(--text-dim); font-size: 11px; text-transform: uppercase; letter-spacing: 0.06em; font-weight: 700; background: rgba(0,0,0,0.2); }
+    tr:last-child td { border-bottom: none; }
+    .pill { font-size: 11px; font-weight: 700; text-transform: uppercase; padding: 3px 8px; border-radius: 999px; }
+    .p-completed { background: rgba(120,80,255,0.2); color: #b39dff; }
+    .p-in_progress { background: rgba(255,180,80,0.15); color: #ffb74d; }
+    .p-abandoned { background: rgba(160,160,180,0.15); color: var(--text-dim); }
+    .empty { color: var(--text-dim); padding: 24px; }
+</style>
+
+<a class="back" href="{{ url_for('quizzes_list') }}">← Back to quizzes</a>
+
+<div class="page-head">
+    <h1>{{ quiz.title }}</h1>
+    <p class="privacy">
+        {% if is_global_quiz %}
+        This is a <strong>shared</strong> quiz for all users. Your <strong>attempts</strong> below are private to your account (<code>{{ current_user.username }}</code>).
+        {% else %}
+        Quizzes and attempts are <strong>only visible to you</strong> — they are stored under your account (<code>{{ current_user.username }}</code>), not shared with other users.
+        {% endif %}
+    </p>
+    <div class="meta">
+        Voice name: <code>{{ quiz.slug }}</code>
+        · {{ n_questions }} question{% if n_questions != 1 %}s{% endif %}
+        · {{ attempts|length }} attempt{% if attempts|length != 1 %}s{% endif %} recorded
+    </div>
+</div>
+
+{% if not attempts %}
+    <p class="empty">No attempts yet. Use the Voice Assistant and say <strong>start quiz {{ quiz.slug | replace('-', ' ') }}</strong> to begin.</p>
+{% else %}
+    <div class="attempt-table-wrap">
+        <table>
+            <thead>
+                <tr>
+                    <th>#</th>
+                    <th>Started</th>
+                    <th>Finished</th>
+                    <th>Status</th>
+                    <th>Score</th>
+                </tr>
+            </thead>
+            <tbody>
+                {% for a in attempts %}
+                <tr>
+                    <td>{{ loop.index }}</td>
+                    <td>{{ a.started_at.strftime('%Y-%m-%d %H:%M') if a.started_at else '—' }}</td>
+                    <td>{{ a.completed_at.strftime('%Y-%m-%d %H:%M') if a.completed_at else '—' }}</td>
+                    <td><span class="pill p-{{ a.status }}">{{ a.status | replace('_', ' ') }}</span></td>
+                    <td>
+                        {% if a.status == 'completed' %}
+                            <strong>{{ a.correct_count }}</strong> correct,
+                            <strong>{{ a.wrong_count }}</strong> wrong
+                            {% if n_questions %}<span style="opacity:0.7"> / {{ n_questions }} questions</span>{% endif %}
+                        {% elif a.status == 'abandoned' %}
+                            {{ a.correct_count }} correct, {{ a.wrong_count }} wrong before stop
+                        {% else %}
+                            In progress (session may still be open)
+                        {% endif %}
+                    </td>
+                </tr>
+                {% endfor %}
+            </tbody>
+        </table>
+    </div>
+{% endif %}
+{% endblock %}

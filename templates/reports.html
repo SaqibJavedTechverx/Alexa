@@ -1,0 +1,82 @@
+{% extends 'base.html' %}
+{% block title %}Reports{% endblock %}
+
+{% block content %}
+<div class="header">
+    <h1>📊 Learning Reports</h1>
+</div>
+
+<div class="stats-grid">
+    <div class="stat-card">
+        <h3>Total Questions</h3>
+        <p id="stat-total-questions">0</p>
+    </div>
+    <div class="stat-card">
+        <h3>Total Activities</h3>
+        <p id="stat-total-activities">0</p>
+    </div>
+    <div class="stat-card">
+        <h3>Daily Streak</h3>
+        <p>3 Days</p>
+    </div>
+</div>
+
+<canvas id="pieChart" height="200"></canvas>
+<canvas id="timelineChart" height="200" style="margin-top:20px"></canvas>
+
+<script>
+    const USER_ID = "student_noman";
+
+    window.onload = () => {
+        loadReports();
+    };
+
+    async function loadReports() {
+        try {
+            const res1 = await fetch(`/reports/${USER_ID}`);
+            const activities = await res1.json();
+            const res2 = await fetch(`/history/${USER_ID}`);
+            const hist = await res2.json();
+
+            document.getElementById('stat-total-questions').innerText = Array.isArray(hist) ? hist.length : 0;
+            document.getElementById('stat-total-activities').innerText = Array.isArray(activities) ? activities.length : 0;
+
+            renderPie(activities);
+            renderTimeline(activities);
+        } catch (e) {
+            console.error('Reports load error', e);
+        }
+    }
+
+    function renderPie(activities) {
+        if (!Array.isArray(activities) || activities.length === 0) return;
+        const counts = {};
+        activities.forEach(a => counts[a.type] = (counts[a.type]||0)+1);
+        const ctx = document.getElementById('pieChart').getContext('2d');
+        new Chart(ctx, {
+            type: 'pie',
+            data: {
+                labels: Object.keys(counts),
+                datasets: [{ values: Object.values(counts), backgroundColor: ['#00e5ff','#7850ff','#ff4b6e'] }]
+            }
+        });
+    }
+
+    function renderTimeline(activities) {
+        if (!Array.isArray(activities) || activities.length === 0) return;
+        const byDate = {};
+        activities.forEach(a => {
+            const d = a.timestamp.split('T')[0];
+            byDate[d] = (byDate[d]||0)+1;
+        });
+        const ctx = document.getElementById('timelineChart').getContext('2d');
+        new Chart(ctx, {
+            type: 'line',
+            data: {
+                labels: Object.keys(byDate),
+                datasets: [{ label: 'Activities', data: Object.values(byDate), borderColor: '#00e5ff', backgroundColor:'rgba(0,229,255,0.1)', fill:true }]
+            }
+        });
+    }
+</script>
+{% endblock %}

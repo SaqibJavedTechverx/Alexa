@@ -1,0 +1,7 @@
+alexa_lambda_build/
+alexa_education_lambda.zip
+alexa_lambda_deploy.zip
+__pycache__/
+*.pyc
+.env
+data.db

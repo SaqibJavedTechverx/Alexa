@@ -1,0 +1,64 @@
+    {
+    "interactionModel": {
+        "languageModel": {
+            "invocationName": "smart assistant",
+            "intents": [
+                {
+                    "name": "AMAZON.CancelIntent",
+                    "samples": []
+                },
+                {
+                    "name": "AMAZON.HelpIntent",
+                    "samples": []
+                },
+                {
+                    "name": "AMAZON.StopIntent",
+                    "samples": []
+                },
+                {
+                    "name": "AssistantIdentityIntent",
+                    "samples": [
+                        "which assistant are you",
+                        "what assistant are you",
+                        "who are you",
+                        "what are you",
+                        "what is your name",
+                        "what's your name",
+                        "whats your name",
+                        "who is this",
+                        "are you alexa",
+                        "are you Siri",
+                        "are you Google",
+                        "what assistant is this",
+                        "do you have a name",
+                        "what should I call you",
+                        "are you an AI",
+                        "what AI are you",
+                        "are you chat gpt"
+                    ]
+                },
+                {
+                    "name": "AskQuestionIntents",
+                    "slots": [
+                        {
+                            "name": "question",
+                            "type": "AMAZON.SearchQuery"
+                        }
+                    ],
+                    "samples": [
+                        "I want to ask {question}",
+                        "explain {question}",
+                        "what is {question}",
+                        "tell me about {question}",
+                        "ask {question}"
+                    ]
+                },
+                {
+                    "name": "AMAZON.NavigateHomeIntent",
+                    "samples": []
+                }
+            ],
+            "types": []
+        }
+    }
+}

@@ -1,0 +1,93 @@
+{% extends 'base.html' %}
+{% block title %}{% if quiz %}Edit quiz{% else %}New quiz{% endif %}{% endblock %}
+{% block content %}
+<style>
+    .main { overflow-y: auto; height: 100vh; padding-bottom: 48px; }
+    .page-head { margin-bottom: 24px; }
+    .page-head h1 { font-size: 24px; font-weight: 800; color: var(--accent); margin-bottom: 8px; }
+    .form-panel {
+        background: var(--card-bg); border: 1px solid rgba(255,255,255,0.06); border-radius: 20px; padding: 28px 32px;
+        max-width: 720px;
+    }
+    label { display: block; font-size: 12px; font-weight: 600; text-transform: uppercase; letter-spacing: 0.08em; color: var(--text-dim); margin-bottom: 8px; }
+    input[type="text"], textarea {
+        width: 100%; padding: 12px 14px; border-radius: 12px; border: 1px solid rgba(255,255,255,0.1);
+        background: rgba(0,0,0,0.25); color: var(--text); font-family: inherit; font-size: 15px; margin-bottom: 18px;
+    }
+    textarea { min-height: 72px; resize: vertical; }
+    .row-pair { border: 1px solid rgba(255,255,255,0.06); border-radius: 14px; padding: 16px; margin-bottom: 12px; position: relative; background: rgba(0,0,0,0.15); }
+    .row-pair .rm { position: absolute; top: 10px; right: 10px; background: transparent; border: 1px solid rgba(255,100,100,0.4); color: #ff8a8a; border-radius: 8px; padding: 4px 10px; cursor: pointer; font-size: 12px; }
+    .btn { display: inline-block; padding: 12px 22px; border-radius: 12px; font-weight: 600; text-decoration: none; border: none; cursor: pointer; font-size: 14px; font-family: inherit; margin-right: 10px; margin-top: 8px; }
+    .btn-secondary { background: rgba(255,255,255,0.06); color: var(--text); border: 1px solid rgba(255,255,255,0.1); }
+    .btn-primary { background: var(--accent); color: #060a12; }
+    .flash { background: rgba(0,229,255,0.1); border: 1px solid rgba(0,229,255,0.25); padding: 12px 16px; border-radius: 12px; margin-bottom: 20px; }
+    .hint { font-size: 13px; color: var(--text-dim); line-height: 1.5; margin-bottom: 20px; }
+</style>
+
+<div class="page-head">
+    <h1>{% if quiz %}Edit quiz{% else %}New quiz{% endif %}</h1>
+    <p class="hint">The <strong>voice name</strong> is what you say after &quot;start quiz&quot; (letters, numbers, spaces — we normalize it). Each row is one question and the exact answer we compare to (similar wording still counts as correct).</p>
+</div>
+
+{% with messages = get_flashed_messages() %}
+    {% if messages %}
+        {% for m in messages %}<div class="flash">{{ m }}</div>{% endfor %}
+    {% endif %}
+{% endwith %}
+
+<form class="form-panel" method="post" id="quiz-form"
+      action="{% if quiz %}{{ url_for('quizzes_edit', quiz_id=quiz.id) }}{% else %}{{ url_for('quizzes_new') }}{% endif %}">
+    <label for="title">Quiz title</label>
+    <input type="text" id="title" name="title" required maxlength="200"
+           value="{{ quiz.title if quiz else '' }}" placeholder="e.g. Biology chapter 3">
+
+    <label for="slug">Voice name (optional)</label>
+    <input type="text" id="slug" name="slug" maxlength="120"
+           value="{{ quiz.slug if quiz else '' }}" placeholder="Leave blank to derive from title, e.g. biology-chapter-3">
+
+    <label>Questions &amp; answers</label>
+    <div id="qa-rows">
+        {% if questions %}
+            {% for item in questions %}
+            <div class="row-pair" data-row>
+                <button type="button" class="rm" onclick="this.closest('[data-row]').remove()">Remove</button>
+                <label>Question</label>
+                <textarea name="prompt" required placeholder="Question text">{{ item.prompt }}</textarea>
+                <label>Answer</label>
+                <textarea name="answer" required placeholder="Expected answer">{{ item.answer }}</textarea>
+            </div>
+            {% endfor %}
+        {% else %}
+            <div class="row-pair" data-row>
+                <button type="button" class="rm" onclick="this.closest('[data-row]').remove()">Remove</button>
+                <label>Question</label>
+                <textarea name="prompt" required placeholder="Question text"></textarea>
+                <label>Answer</label>
+                <textarea name="answer" required placeholder="Expected answer"></textarea>
+            </div>
+        {% endif %}
+    </div>
+    <button type="button" class="btn btn-secondary" id="add-row">+ Add question</button>
+    <div style="margin-top: 24px;">
+        <button type="submit" class="btn btn-primary">Save quiz</button>
+        <a href="{{ url_for('quizzes_list') }}" class="btn btn-secondary">Cancel</a>
+    </div>
+</form>
+
+<template id="row-template">
+    <div class="row-pair" data-row>
+        <button type="button" class="rm" onclick="this.closest('[data-row]').remove()">Remove</button>
+        <label>Question</label>
+        <textarea name="prompt" required placeholder="Question text"></textarea>
+        <label>Answer</label>
+        <textarea name="answer" required placeholder="Expected answer"></textarea>
+    </div>
+</template>
+<script>
+    document.getElementById('add-row').addEventListener('click', function () {
+        var t = document.getElementById('row-template');
+        var node = t.content.cloneNode(true);
+        document.getElementById('qa-rows').appendChild(node);
+    });
+</script>
+{% endblock %}

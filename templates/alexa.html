@@ -1,0 +1,892 @@
+{% extends 'base.html' %}
+{% block title %}Voice Assistant{% endblock %}
+
+{% block content %}
+<style>
+    .main {
+        padding: 0 !important;
+        margin-left: 300px;
+        height: 100vh;
+        overflow: hidden;
+    }
+    .alexa-topbar {
+        display: flex;
+        flex-wrap: wrap;
+        align-items: center;
+        justify-content: space-between;
+        gap: 12px 20px;
+        padding: 12px 20px;
+        background: rgba(255, 255, 255, 0.02);
+        border-bottom: 1px solid rgba(255, 255, 255, 0.06);
+        position: sticky;
+        top: 0;
+        z-index: 10;
+    }
+    .session-badge {
+        background: var(--accent);
+        color: #060a12;
+        padding: 8px 16px;
+        border-radius: 20px;
+        font-size: 14px;
+        font-weight: 600;
+        box-shadow: 0 2px 10px rgba(0, 229, 255, 0.3);
+    }
+    .voice-center {
+        display: flex;
+        justify-content: center;
+        align-items: flex-start;
+        min-height: calc(100vh - 72px);
+        padding: 24px 20px 32px;
+        overflow-y: auto;
+    }
+    .voice-panel {
+        display: flex;
+        flex-direction: column;
+        align-items: center;
+        gap: 0;
+        padding: 32px 36px 40px;
+        background: var(--card-bg);
+        border: 1px solid rgba(255, 255, 255, 0.06);
+        border-radius: 24px;
+        width: min(560px, calc(100vw - 340px));
+        max-width: 100%;
+        text-align: center;
+    }
+    .status-badge {
+        font-size: 11px;
+        font-weight: 700;
+        letter-spacing: 0.12em;
+        text-transform: uppercase;
+        color: var(--text-dim);
+        margin-bottom: 20px;
+    }
+    .orb-wrap {
+        position: relative;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        margin-bottom: 8px;
+    }
+    .orb {
+        appearance: none;
+        -webkit-appearance: none;
+        padding: 0;
+        font: inherit;
+        width: 128px;
+        height: 128px;
+        border-radius: 50%;
+        background: linear-gradient(145deg, rgba(0, 229, 255, 0.12), rgba(120, 80, 255, 0.1));
+        border: 2px solid rgba(0, 229, 255, 0.35);
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        cursor: pointer;
+        transition: transform 0.2s ease, border-color 0.2s ease, box-shadow 0.2s ease;
+        position: relative;
+        overflow: hidden;
+    }
+    .orb:hover {
+        transform: scale(1.04);
+        border-color: var(--accent);
+        box-shadow: 0 0 28px var(--accent-glow);
+    }
+    .orb:focus-visible {
+        outline: 2px solid var(--accent);
+        outline-offset: 4px;
+    }
+    .orb.listening {
+        background: linear-gradient(145deg, rgba(255, 80, 100, 0.18), rgba(255, 120, 120, 0.08));
+        border-color: #ff6b6b;
+        animation: orb-pulse 2s ease-in-out infinite;
+    }
+    .orb.stopped {
+        background: linear-gradient(145deg, rgba(100, 100, 120, 0.12), rgba(60, 60, 80, 0.1));
+        border-color: #555;
+    }
+    .orb.processing {
+        background: linear-gradient(145deg, rgba(120, 80, 255, 0.2), rgba(0, 229, 255, 0.15));
+        border-color: var(--purple);
+    }
+    .orb.processing::before {
+        content: '';
+        position: absolute;
+        inset: -4px;
+        border-radius: 50%;
+        border: 2px solid transparent;
+        border-top-color: var(--accent);
+        animation: orb-spin 0.9s linear infinite;
+    }
+    .orb.speaking {
+        background: linear-gradient(145deg, rgba(0, 200, 255, 0.22), rgba(80, 120, 255, 0.15));
+        border-color: #40c4ff;
+        animation: orb-speak 1.2s ease-in-out infinite;
+    }
+    .orb-icon {
+        font-size: 52px;
+        z-index: 2;
+        line-height: 1;
+        user-select: none;
+    }
+    .orb-hint {
+        font-size: 12px;
+        color: var(--text-dim);
+        margin-top: 14px;
+        margin-bottom: 24px;
+        max-width: 340px;
+        line-height: 1.45;
+    }
+    .answer-block {
+        width: 100%;
+        text-align: left;
+        margin-top: 4px;
+    }
+    .answer-label {
+        font-size: 10px;
+        font-weight: 700;
+        letter-spacing: 0.14em;
+        text-transform: uppercase;
+        color: var(--purple);
+        margin-bottom: 8px;
+    }
+    .answer-card {
+        width: 100%;
+        min-height: 72px;
+        max-height: min(280px, 38vh);
+        overflow-y: auto;
+        padding: 16px 18px;
+        border-radius: 16px;
+        background: rgba(120, 80, 255, 0.06);
+        border: 1px solid rgba(120, 80, 255, 0.2);
+        font-size: 15px;
+        line-height: 1.55;
+        color: var(--text);
+    }
+    .answer-card:empty::before {
+        content: 'Answers from Alexa will show here after you ask.';
+        color: var(--text-dim);
+        font-size: 14px;
+    }
+    .answer-card.has-content:empty::before {
+        content: none;
+    }
+    .user-line {
+        width: 100%;
+        text-align: left;
+        margin-bottom: 16px;
+        padding-top: 4px;
+    }
+    .user-line-label {
+        font-size: 10px;
+        font-weight: 700;
+        letter-spacing: 0.14em;
+        text-transform: uppercase;
+        color: var(--accent);
+        margin-bottom: 6px;
+    }
+    .user-line-text {
+        font-size: 14px;
+        line-height: 1.45;
+        color: var(--text-dim);
+        word-break: break-word;
+    }
+    @keyframes orb-pulse {
+        0%, 100% { box-shadow: 0 0 0 0 rgba(255, 100, 100, 0.35); }
+        50% { box-shadow: 0 0 0 14px rgba(255, 100, 100, 0); }
+    }
+    @keyframes orb-speak {
+        0%, 100% { box-shadow: 0 0 0 0 rgba(64, 196, 255, 0.4); }
+        50% { box-shadow: 0 0 0 12px rgba(64, 196, 255, 0); }
+    }
+    @keyframes orb-spin {
+        to { transform: rotate(360deg); }
+    }
+</style>
+
+<div class="alexa-topbar">
+    <span class="session-badge" id="session-display">Session: None</span>
+</div>
+
+<div class="voice-center">
+    <div class="voice-panel">
+        <div class="status-badge" id="orb-status">Ready</div>
+
+        <div class="orb-wrap">
+            <button type="button" class="orb" id="orb" onclick="toggleAlexa()" aria-label="Microphone and playback control">
+                <span class="orb-icon" id="orb-icon" aria-hidden="true">🎙️</span>
+            </button>
+        </div>
+
+        <p class="orb-hint" id="orb-hint">Tap the microphone to ask a study question, or say <strong>start quiz</strong> plus your quiz’s voice name (see Quizzes page). Pause when you finish speaking.</p>
+
+        <div class="user-line">
+            <div class="user-line-label">You</div>
+            <div class="user-line-text" id="user-transcript">—</div>
+        </div>
+
+        <div class="answer-block">
+            <div class="answer-label">Alexa</div>
+            <div class="answer-card" id="alexa-answer" aria-live="polite"></div>
+        </div>
+    </div>
+</div>
+
+<script>
+    const USER_ID = "{{ current_user.username }}";
+    let isListening = false;
+    /** True while /ask is in flight */
+    let isFetchingAnswer = false;
+    /** True while TTS is playing (browser or MP3) */
+    let isPlayingAnswer = false;
+    let hasInteracted = false;
+    let recognition;
+    let silenceTimer;
+    let currentSessionId = null;
+    let currentAnswerAudio = null;
+    let currentTtsObjectUrl = null;
+    let activeAskAbort = null;
+    let userCancelledAsk = false;
+    /** Bumps on each new listen or stop — invalidates silence / max timers */
+    let listenEpoch = 0;
+    let lastTranscript = '';
+    let listenMaxTimer = null;
+    let micWarmupTimer = null;
+
+    const INITIAL_ASK_BACKEND = {{ ask_backend|default('')|tojson }};
+    const INITIAL_ASK_BACKEND_LABEL = {{ ask_backend_label|default('')|tojson }};
+    const USE_POLLY_VOICE = {{ use_polly_voice|default(false)|tojson }};
+
+    /** Pause after last word before sending (continuous mode needs longer than one-shot) */
+    const SILENCE_MS = 1450;
+    const MAX_LISTEN_MS = 90000;
+    const MAX_ALTERNATIVES = 5;
+    /** Let the mic + recognizer open before audio is decoded — reduces dropped first words like "what" */
+    const MIC_WARMUP_MS = 420;
+    /** After recognition.stop(), Chromium may emit one more onresult with the full line — wait before submit */
+    const AFTER_STOP_MS = 140;
+
+    /** Match browser / OS locale for English variants (en-IN, en-GB, …) */
+    function speechRecognitionLang() {
+        const l = (navigator.language || 'en-US').toLowerCase();
+        if (l.startsWith('en')) return navigator.language;
+        return 'en-US';
+    }
+
+    /** Pick best alternative: prefer non-empty transcripts; then highest confidence (Chromium). */
+    function pickBestAlternative(result) {
+        if (!result || result.length === 0) return { transcript: '' };
+        let best = null;
+        let bestConf = -Infinity;
+        for (let j = 0; j < result.length; j++) {
+            const a = result[j];
+            const t = (a.transcript || '').trim();
+            if (!t.length) continue;
+            const c = typeof a.confidence === 'number' ? a.confidence : 0;
+            if (best == null || c > bestConf) {
+                bestConf = c;
+                best = a;
+            }
+        }
+        if (best) return best;
+        return result[0];
+    }
+
+    /**
+     * Merge every segment. Join with spaces so "what"+"is" never becomes "whatis".
+     * event.results is the full snapshot for this utterance (continuous mode).
+     */
+    function fullTranscriptFromResults(results) {
+        if (!results || !results.length) return '';
+        const parts = [];
+        for (let i = 0; i < results.length; i++) {
+            const t = (pickBestAlternative(results[i]).transcript || '').trim();
+            if (t.length) parts.push(t);
+        }
+        return parts.join(' ').replace(/\s{2,}/g, ' ').trim();
+    }
+
+    /** Console only — no backend / speech hints on the page */
+    function logAskBackend(data) {
+        const code = (data && data.ask_backend) ? data.ask_backend : INITIAL_ASK_BACKEND;
+        const label = (data && data.ask_backend_label) ? data.ask_backend_label : INITIAL_ASK_BACKEND_LABEL;
+        console.log('\n========== Voice /ask ==========\n  ' + (label || '') + '\n  code: ' + code + '\n================================\n');
+        console.warn('[Voice /ask]', label || code, '| code=', code);
+        try {
+            console.log('%c' + (label || code) + ' %c(' + code + ')', 'font-weight:bold;color:#4ec9b0;', 'color:#888;');
+        } catch (e) { /* ignore */ }
+    }
+
+    function logSpeechMode(detail) {
+        console.log('[Voice TTS]', detail);
+    }
+
+    window.onload = async () => {
+        console.warn(
+            "[Voice] Page load — answers:",
+            INITIAL_ASK_BACKEND_LABEL || INITIAL_ASK_BACKEND,
+            "| code:",
+            INITIAL_ASK_BACKEND || "?"
+        );
+        fetchSessionStats();
+
+        const continueSessionId = localStorage.getItem('continueSessionId');
+        if (continueSessionId) {
+            localStorage.removeItem('continueSessionId');
+            currentSessionId = parseInt(continueSessionId, 10);
+            updateSessionDisplay();
+            hasInteracted = true;
+        } else if (!currentSessionId) {
+            await createNewSession();
+        }
+    };
+
+    function toggleAlexa() {
+        if (isFetchingAnswer && activeAskAbort) {
+            userCancelledAsk = true;
+            try {
+                activeAskAbort.abort();
+            } catch (e) { /* ignore */ }
+            activeAskAbort = null;
+            isFetchingAnswer = false;
+            setOrbState('');
+            document.getElementById('orb-icon').textContent = '🎙️';
+            document.getElementById('orb-status').textContent = 'READY';
+            document.getElementById('orb-hint').textContent = 'Request cancelled. Tap when you want to try again.';
+            return;
+        }
+        if (isPlayingAnswer || currentAnswerAudio) {
+            interruptPlayback();
+            return;
+        }
+        if (!hasInteracted) {
+            hasInteracted = true;
+            startListening();
+            return;
+        }
+        if (isListening) {
+            stopMicAndIdle('Stopped. Tap when you want to speak again.');
+            return;
+        }
+        startListening();
+    }
+
+    function invalidateListenTimers() {
+        listenEpoch++;
+        clearTimeout(silenceTimer);
+        silenceTimer = null;
+        if (listenMaxTimer) {
+            clearTimeout(listenMaxTimer);
+            listenMaxTimer = null;
+        }
+        if (micWarmupTimer) {
+            clearTimeout(micWarmupTimer);
+            micWarmupTimer = null;
+        }
+    }
+
+    function interruptPlayback() {
+        invalidateListenTimers();
+        if (recognition) {
+            try { recognition.stop(); } catch (e) { /* ignore */ }
+        }
+        try {
+            if (window.speechSynthesis) window.speechSynthesis.cancel();
+        } catch (e) { /* ignore */ }
+        if (currentAnswerAudio) {
+            try {
+                currentAnswerAudio.pause();
+                currentAnswerAudio = null;
+            } catch (e) { /* ignore */ }
+        }
+        revokeTtsBlob();
+        isPlayingAnswer = false;
+        isFetchingAnswer = false;
+        activeAskAbort = null;
+        isListening = false;
+        setOrbState('');
+        document.getElementById('orb-icon').textContent = '🎙️';
+        document.getElementById('orb-status').textContent = 'READY';
+        document.getElementById('orb-hint').textContent = 'Playback stopped. Tap the microphone when you want to ask again.';
+    }
+
+    function stopMicAndIdle(hint) {
+        invalidateListenTimers();
+        if (recognition) {
+            try { recognition.stop(); } catch (e) { /* ignore */ }
+        }
+        isListening = false;
+        setOrbState('stopped');
+        document.getElementById('orb-icon').textContent = '⏹️';
+        document.getElementById('orb-status').textContent = 'STOPPED';
+        if (hint) document.getElementById('orb-hint').textContent = hint;
+    }
+
+    function goToIdleAfterAnswer() {
+        setOrbState('');
+        document.getElementById('orb-icon').textContent = '🎙️';
+        document.getElementById('orb-status').textContent = 'READY';
+        document.getElementById('orb-hint').textContent = 'Tap for another question, or say start quiz and a quiz name. The mic stays off until you tap.';
+    }
+
+    function startListening() {
+        if (isFetchingAnswer || isPlayingAnswer) return;
+        const SpeechRecognition = window.SpeechRecognition || window.webkitSpeechRecognition;
+        if (!SpeechRecognition) {
+            document.getElementById('orb-hint').textContent = 'Speech recognition is not supported in this browser.';
+            return;
+        }
+
+        invalidateListenTimers();
+
+        if (recognition) {
+            try { recognition.stop(); } catch (e) { /* ignore */ }
+        }
+
+        if (!currentSessionId) {
+            createNewSession().then(() => {});
+        }
+
+        const epoch = listenEpoch;
+        lastTranscript = '';
+
+        recognition = new SpeechRecognition();
+        recognition.continuous = true;
+        recognition.interimResults = true;
+        recognition.lang = speechRecognitionLang();
+        try {
+            recognition.maxAlternatives = MAX_ALTERNATIVES;
+        } catch (e) { /* older WebKit may omit */ }
+
+        recognition.onstart = () => {
+            isListening = true;
+            setOrbState('listening');
+            document.getElementById('orb-status').textContent = 'LISTENING';
+            document.getElementById('orb-icon').textContent = '🔴';
+            document.getElementById('orb-hint').textContent = 'Speak now. Pause about a second when finished — first words are included after the mic opens.';
+            if (listenMaxTimer) {
+                clearTimeout(listenMaxTimer);
+                listenMaxTimer = null;
+            }
+            listenMaxTimer = setTimeout(() => {
+                if (epoch !== listenEpoch) return;
+                try { if (recognition) recognition.stop(); } catch (e) { /* ignore */ }
+                scheduleFinalizeAfterStop(epoch);
+            }, MAX_LISTEN_MS);
+        };
+
+        recognition.onresult = (event) => {
+            if (epoch !== listenEpoch) return;
+            const text = fullTranscriptFromResults(event.results);
+            if (!text) return;
+            lastTranscript = text;
+            document.getElementById('user-transcript').textContent = text;
+            clearTimeout(silenceTimer);
+            silenceTimer = setTimeout(() => {
+                if (epoch !== listenEpoch || isFetchingAnswer || isPlayingAnswer) return;
+                try { if (recognition) recognition.stop(); } catch (e) { /* ignore */ }
+                scheduleFinalizeAfterStop(epoch);
+            }, SILENCE_MS);
+        };
+
+        recognition.onerror = (e) => {
+            console.error('STT Error:', e.error);
+            isListening = false;
+            invalidateListenTimers();
+            if (e.error === 'no-speech' || e.error === 'audio-capture') {
+                setOrbState('stopped');
+                document.getElementById('orb-hint').textContent = 'No speech heard. Check the mic permission, reduce background noise, and tap to try again.';
+                document.getElementById('orb-icon').textContent = '🎙️';
+                document.getElementById('orb-status').textContent = 'READY';
+                return;
+            }
+            if (e.error !== 'aborted') {
+                document.getElementById('orb-hint').textContent = 'Voice error: ' + e.error + '. Tap to retry.';
+            }
+            setOrbState('');
+            document.getElementById('orb-icon').textContent = '🎙️';
+            document.getElementById('orb-status').textContent = 'READY';
+        };
+
+        recognition.onend = () => {
+            isListening = false;
+            if (listenMaxTimer) {
+                clearTimeout(listenMaxTimer);
+                listenMaxTimer = null;
+            }
+        };
+
+        setOrbState('listening');
+        document.getElementById('orb-status').textContent = 'STARTING MIC';
+        document.getElementById('orb-icon').textContent = '⏳';
+        document.getElementById('orb-hint').textContent = 'Wait a moment, then speak — this avoids cutting off the first words.';
+
+        micWarmupTimer = setTimeout(() => {
+            micWarmupTimer = null;
+            if (epoch !== listenEpoch) return;
+            try {
+                recognition.start();
+            } catch (e) {
+                console.error('Start Error:', e);
+                invalidateListenTimers();
+                document.getElementById('orb-hint').textContent = 'Could not start microphone. Tap to try again.';
+            }
+        }, MIC_WARMUP_MS);
+    }
+
+    /** Let the engine flush final hypotheses after stop() before we send text to the server */
+    function scheduleFinalizeAfterStop(epoch) {
+        setTimeout(() => {
+            if (epoch !== listenEpoch || isFetchingAnswer || isPlayingAnswer) return;
+            handleListenSilence(lastTranscript, epoch);
+        }, AFTER_STOP_MS);
+    }
+
+    function handleListenSilence(text, epoch) {
+        if (epoch !== listenEpoch) return;
+        if (isFetchingAnswer || isPlayingAnswer) return;
+        clearTimeout(silenceTimer);
+        silenceTimer = null;
+        if (listenMaxTimer) {
+            clearTimeout(listenMaxTimer);
+            listenMaxTimer = null;
+        }
+        const q = (text || '').trim();
+        if (q.length > 0) {
+            try { if (recognition) recognition.stop(); } catch (e) { /* ignore */ }
+            console.log('[STT] Final question:', q);
+            processQuery(q);
+        } else {
+            try { if (recognition) recognition.stop(); } catch (e) { /* ignore */ }
+            setOrbState('stopped');
+            document.getElementById('orb-hint').textContent = 'Did not catch that. Tap the microphone, speak toward the mic, then pause.';
+            document.getElementById('orb-icon').textContent = '🎙️';
+            document.getElementById('orb-status').textContent = 'READY';
+        }
+    }
+
+    async function processQuery(q) {
+        if (isFetchingAnswer || isPlayingAnswer) return;
+        invalidateListenTimers();
+        isFetchingAnswer = true;
+        try { if (recognition) recognition.stop(); } catch (e) { /* ignore */ }
+
+        setOrbState('processing');
+        document.getElementById('orb-status').textContent = 'THINKING';
+        document.getElementById('orb-icon').textContent = '🧠';
+        document.getElementById('orb-hint').textContent = 'Getting your answer… (tap to cancel)';
+
+        const ASK_TIMEOUT_MS = 38000;
+        const controller = new AbortController();
+        activeAskAbort = controller;
+        const timer = setTimeout(() => controller.abort(), ASK_TIMEOUT_MS);
+        console.log('[/ask] posting question, session_id=', currentSessionId);
+        try {
+            const res = await fetch('/ask', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({
+                    question: q,
+                    session_id: currentSessionId
+                }),
+                signal: controller.signal,
+                credentials: 'same-origin',
+            });
+            console.log('[/ask] response status=', res.status);
+            let data;
+            try {
+                data = await res.json();
+            } catch (parseErr) {
+                clearTimeout(timer);
+                activeAskAbort = null;
+                isFetchingAnswer = false;
+                document.getElementById('orb-hint').textContent = 'Server did not return JSON. You may need to log in again, or check the Flask terminal.';
+                setOrbState('');
+                document.getElementById('orb-icon').textContent = '🎙️';
+                document.getElementById('orb-status').textContent = 'ERROR';
+                goToIdleAfterAnswer();
+                return;
+            }
+            clearTimeout(timer);
+
+            if (!res.ok) {
+                activeAskAbort = null;
+                isFetchingAnswer = false;
+                const msg = (data && data.answer) ? data.answer : ('Request failed: ' + res.status);
+                document.getElementById('alexa-answer').textContent = msg;
+                document.getElementById('alexa-answer').classList.add('has-content');
+                setOrbState('');
+                document.getElementById('orb-icon').textContent = '🎙️';
+                document.getElementById('orb-status').textContent = 'ERROR';
+                goToIdleAfterAnswer();
+                return;
+            }
+
+            if (data.answer) {
+                activeAskAbort = null;
+                isFetchingAnswer = false;
+                currentSessionId = data.session_id;
+                logAskBackend(data);
+                speakAnswer(data.answer);
+            } else {
+                activeAskAbort = null;
+                isFetchingAnswer = false;
+                setOrbState('');
+                document.getElementById('orb-icon').textContent = '🎙️';
+                goToIdleAfterAnswer();
+            }
+        } catch (e) {
+            clearTimeout(timer);
+            activeAskAbort = null;
+            isFetchingAnswer = false;
+            if (e.name === 'AbortError' && userCancelledAsk) {
+                userCancelledAsk = false;
+                return;
+            }
+            console.error('Process Error:', e);
+            const msg = (e.name === 'AbortError')
+                ? 'Request timed out. Check AWS credentials and Lambda configuration. See Flask terminal for errors.'
+                : ('Error: ' + (e.message || String(e)));
+            document.getElementById('alexa-answer').textContent = msg;
+            document.getElementById('alexa-answer').classList.add('has-content');
+            setOrbState('');
+            document.getElementById('orb-icon').textContent = '🎙️';
+            document.getElementById('orb-status').textContent = 'ERROR';
+            goToIdleAfterAnswer();
+        }
+    }
+
+    function afterSpeechEnds() {
+        isPlayingAnswer = false;
+        goToIdleAfterAnswer();
+    }
+
+    function revokeTtsBlob() {
+        if (currentTtsObjectUrl) {
+            try {
+                URL.revokeObjectURL(currentTtsObjectUrl);
+            } catch (e) { /* ignore */ }
+            currentTtsObjectUrl = null;
+        }
+    }
+
+    async function speakAnswerWithMp3(text) {
+        logSpeechMode(
+            USE_POLLY_VOICE
+                ? 'Amazon Polly (server /tts)'
+                : 'Server MP3 (gTTS via /tts)'
+        );
+        let audio;
+        try {
+            const res = await fetch('/tts', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ text }),
+                credentials: 'same-origin',
+            });
+            if (!res.ok) {
+                let msg = 'Text-to-speech failed.';
+                try {
+                    const j = await res.json();
+                    if (j.error) msg = j.error;
+                } catch (e) { /* ignore */ }
+                console.error('TTS HTTP', res.status, msg);
+                isPlayingAnswer = false;
+                document.getElementById('orb-hint').textContent = msg;
+                setOrbState('');
+                document.getElementById('orb-icon').textContent = '🎙️';
+                goToIdleAfterAnswer();
+                return;
+            }
+            const blob = await res.blob();
+            if (!blob || blob.size < 64) {
+                console.error('TTS empty or invalid audio blob');
+                isPlayingAnswer = false;
+                goToIdleAfterAnswer();
+                return;
+            }
+            revokeTtsBlob();
+            currentTtsObjectUrl = URL.createObjectURL(blob);
+            audio = new Audio(currentTtsObjectUrl);
+        } catch (err) {
+            console.error('TTS fetch failed:', err);
+            revokeTtsBlob();
+            isPlayingAnswer = false;
+            goToIdleAfterAnswer();
+            return;
+        }
+
+        currentAnswerAudio = audio;
+        audio.preload = 'auto';
+        audio.setAttribute('playsinline', 'true');
+
+        const clearAudioRef = () => {
+            if (currentAnswerAudio === audio) currentAnswerAudio = null;
+            revokeTtsBlob();
+        };
+
+        audio.addEventListener('playing', () => {
+            fetchHistory();
+        }, { once: true });
+
+        audio.onended = () => {
+            clearAudioRef();
+            afterSpeechEnds();
+        };
+
+        audio.onerror = () => {
+            clearAudioRef();
+            console.error('Audio playback error');
+            isPlayingAnswer = false;
+            goToIdleAfterAnswer();
+        };
+
+        try {
+            await audio.play();
+        } catch (e) {
+            clearAudioRef();
+            console.error('Playback Error (Autoplay?):', e);
+            isPlayingAnswer = false;
+            goToIdleAfterAnswer();
+        }
+    }
+
+    function bestEnglishFemaleVoice() {
+        const vs = window.speechSynthesis ? speechSynthesis.getVoices() : [];
+        if (!vs || !vs.length) return null;
+        const en = vs.filter((v) => v.lang && /^en(-|$)/i.test(v.lang));
+        const score = (v) => {
+            const n = (v.name || '').toLowerCase();
+            if (/male|daniel|fred|david\s| mark |aaron|james|john | george| arthur/i.test(n)) return 80;
+            if (/female|samantha|victoria|karen|zira|susan|veena|fiona|hazel|martha|zoe|sara|ivy/i.test(n)) return 0;
+            return 40;
+        };
+        return [...en].sort((a, b) => score(a) - score(b))[0] || null;
+    }
+
+    function speakBrowserTtsWithPreferredVoice(text) {
+        let done = false;
+        const go = () => {
+            if (done) return;
+            done = true;
+            try {
+                window.speechSynthesis.cancel();
+                logSpeechMode('Browser Web Speech API (en-US)');
+                const u = new SpeechSynthesisUtterance(text);
+                u.lang = 'en-US';
+                u.rate = 1;
+                const bv = bestEnglishFemaleVoice();
+                if (bv) u.voice = bv;
+                u.onstart = () => {
+                    fetchHistory();
+                };
+                u.onend = afterSpeechEnds;
+                u.onerror = (ev) => {
+                    if (ev && (ev.error === 'canceled' || ev.error === 'interrupted')) return;
+                    console.warn('Speech synthesis failed, falling back to server TTS:', ev);
+                    speakAnswerWithMp3(text);
+                };
+                window.speechSynthesis.speak(u);
+            } catch (err) {
+                console.warn('speechSynthesis.speak error, using MP3:', err);
+                speakAnswerWithMp3(text);
+            }
+        };
+        const tryWhenVoicesReady = () => {
+            if (speechSynthesis.getVoices().length) {
+                go();
+                return true;
+            }
+            return false;
+        };
+        if (tryWhenVoicesReady()) return;
+        const onV = () => {
+            if (tryWhenVoicesReady()) speechSynthesis.removeEventListener('voiceschanged', onV);
+        };
+        speechSynthesis.addEventListener('voiceschanged', onV);
+        setTimeout(() => {
+            speechSynthesis.removeEventListener('voiceschanged', onV);
+            go();
+        }, 600);
+    }
+
+    function speakAnswer(text) {
+        isPlayingAnswer = true;
+        const card = document.getElementById('alexa-answer');
+        if (text && String(text).trim()) {
+            card.textContent = text;
+            card.classList.add('has-content');
+        }
+
+        setOrbState('speaking');
+        document.getElementById('orb-status').textContent = 'SPEAKING';
+        document.getElementById('orb-icon').textContent = '🔊';
+        document.getElementById('orb-hint').textContent = 'Tap the button to stop playback.';
+
+        if (!text || !String(text).trim()) {
+            isPlayingAnswer = false;
+            goToIdleAfterAnswer();
+            return;
+        }
+
+        if (!USE_POLLY_VOICE && typeof window.speechSynthesis !== 'undefined' && window.speechSynthesis) {
+            speakBrowserTtsWithPreferredVoice(text);
+            return;
+        }
+
+        speakAnswerWithMp3(text);
+    }
+
+    function setOrbState(state) {
+        const orb = document.getElementById('orb');
+        orb.className = 'orb ' + (state || '').trim();
+    }
+
+    async function fetchHistory() {
+        if (!currentSessionId) return;
+        try {
+            await fetch(`/history/${currentSessionId}`);
+            updateSessionDisplay();
+        } catch (e) {
+            console.error('History fetch error:', e);
+        }
+    }
+
+    async function fetchSessionStats() {
+        try {
+            await fetch('/sessions');
+            updateSessionDisplay();
+        } catch (e) {
+            console.error('Session stats fetch error:', e);
+        }
+    }
+
+    async function createNewSession() {
+        try {
+            const res = await fetch('/sessions', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' }
+            });
+            const session = await res.json();
+            currentSessionId = session.id;
+            updateSessionDisplay();
+            console.log('New session created:', session.id);
+        } catch (e) {
+            console.error('Failed to create session:', e);
+        }
+    }
+
+    function updateSessionDisplay() {
+        const sessionDisplay = document.getElementById('session-display');
+        const downloadBtn = document.getElementById('download-btn');
+        if (!sessionDisplay) return;
+        if (currentSessionId) {
+            sessionDisplay.textContent = `Session: ${currentSessionId}`;
+            sessionDisplay.style.background = 'var(--accent)';
+            if (downloadBtn) downloadBtn.style.display = 'inline-block';
+        } else {
+            sessionDisplay.textContent = 'Session: None';
+            sessionDisplay.style.background = 'rgba(150, 150, 150, 0.3)';
+            if (downloadBtn) downloadBtn.style.display = 'none';
+        }
+    }
+</script>
+{% endblock %}

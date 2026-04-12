@@ -1,0 +1,12 @@
+flask
+flask-sqlalchemy
+psycopg2-binary
+python-dotenv
+fpdf
+flask-cors
+flask-login
+werkzeug
+boto3
+google-generativeai
+gTTS
+gunicorn
