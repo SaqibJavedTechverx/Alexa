@@ -21,6 +21,7 @@ import secrets
 from urllib.parse import parse_qsl, urlencode, urlparse, urlunparse
 from fpdf import FPDF  # for PDF export
 from sqlalchemy import func
+from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import selectinload
 
 # ── Load environment variables ────────────────────────────────
@@ -667,6 +668,7 @@ class QuizAttempt(db.Model):
 
 # Built-in quizzes for all accounts (stored under a non-login system user).
 SYSTEM_QUIZ_USERNAME = "__system_quizzes__"
+SYSTEM_QUIZ_EMAIL = "system-quizzes@local.invalid"
 _GLOBAL_QUIZ_SEEDS: list[tuple[str, str, list[tuple[str, str]]]] = [
     (
         "Science basics",
@@ -725,13 +727,25 @@ def _seed_global_quizzes() -> None:
     """Create system user (no login) and generic quizzes once."""
     u = User.query.filter_by(username=SYSTEM_QUIZ_USERNAME).first()
     if not u:
+        u = User.query.filter_by(email=SYSTEM_QUIZ_EMAIL).first()
+    if not u:
         u = User(
             username=SYSTEM_QUIZ_USERNAME,
-            email="system-quizzes@local.invalid",
+            email=SYSTEM_QUIZ_EMAIL,
             password_hash=generate_password_hash(secrets.token_urlsafe(48)),
         )
         db.session.add(u)
-        db.session.commit()
+        try:
+            db.session.commit()
+        except IntegrityError:
+            # Another Gunicorn worker may have inserted the same row, or email/username
+            # already exists from a prior partial migration.
+            db.session.rollback()
+            u = User.query.filter_by(username=SYSTEM_QUIZ_USERNAME).first()
+            if not u:
+                u = User.query.filter_by(email=SYSTEM_QUIZ_EMAIL).first()
+    if u is None:
+        raise RuntimeError("Could not create or load system quiz user")
 
     for title, slug, pairs in _GLOBAL_QUIZ_SEEDS:
         existing = Quiz.query.filter_by(user_id=u.id, slug=slug).first()
