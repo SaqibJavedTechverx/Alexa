@@ -28,7 +28,13 @@ from sqlalchemy.orm import selectinload
 load_dotenv()
 
 # Strip quotes/spaces from AWS vars — stray quotes cause UnrecognizedClientException.
-for _k in ("AWS_ACCESS_KEY_ID", "AWS_SECRET_ACCESS_KEY", "AWS_SESSION_TOKEN"):
+# Same for GOOGLE_API_KEY — quoted values in .env break Gemini (400 API_KEY_INVALID).
+for _k in (
+    "AWS_ACCESS_KEY_ID",
+    "AWS_SECRET_ACCESS_KEY",
+    "AWS_SESSION_TOKEN",
+    "GOOGLE_API_KEY",
+):
     _v = os.getenv(_k)
     if _v:
         os.environ[_k] = _v.strip().strip('"').strip("'")
@@ -43,7 +49,7 @@ if os.getenv("AWS_ACCESS_KEY_ID") and os.getenv("AWS_EC2_METADATA_DISABLED") is 
 # ASK_GEMINI_FIRST=1 (with ALEXA_LAMBDA_ARN set): answer general questions with Gemini;
 # route skill-style utterances (e.g. "who are you") to the Alexa Lambda via AssistantIdentityIntent.
 GOOGLE_API_KEY = os.getenv("GOOGLE_API_KEY")
-GEMINI_MODEL = os.getenv("GEMINI_MODEL", "gemini-2.0-flash")
+GEMINI_MODEL = (os.getenv("GEMINI_MODEL") or "gemini-2.0-flash").strip().strip('"').strip("'")
 ALEXA_LAMBDA_ARN = os.getenv("ALEXA_LAMBDA_ARN", "").strip()
 genai = None
 if GOOGLE_API_KEY and os.getenv("ASK_USE_GEMINI", "").strip().lower() in ("1", "true", "yes"):
@@ -51,6 +57,10 @@ if GOOGLE_API_KEY and os.getenv("ASK_USE_GEMINI", "").strip().lower() in ("1", "
         import google.generativeai as _genai
         genai = _genai
         genai.configure(api_key=GOOGLE_API_KEY)
+        # Helps debug EC2/systemd: wrong .env or truncated export shows up as length 0 or very short.
+        print(
+            f"[Gemini] google-generativeai configured (GOOGLE_API_KEY length={len(GOOGLE_API_KEY)} chars)"
+        )
     except ImportError:
         print("google-generativeai package not installed, skipping Gemini fallback")
 
