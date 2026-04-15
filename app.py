@@ -1,7 +1,19 @@
 # app.py
 from __future__ import annotations
 
-from flask import Flask, request, jsonify, send_file, render_template, make_response, redirect, url_for, flash, session
+from flask import (
+    Flask,
+    g,
+    request,
+    jsonify,
+    send_file,
+    render_template,
+    make_response,
+    redirect,
+    url_for,
+    flash,
+    session,
+)
 from flask_cors import CORS
 from flask_sqlalchemy import SQLAlchemy
 from flask_login import LoginManager, UserMixin, login_user, login_required, logout_user, current_user # type: ignore
@@ -317,6 +329,40 @@ def generate_education_answer(question: str) -> str:
         return f"Sorry, I couldn't answer that right now. ({e})"
 
 
+def _should_fallback_to_alexa_after_gemini_failure(message: str) -> bool:
+    """True when Gemini returned an error string we should recover from using Lambda."""
+    if not ALEXA_LAMBDA_ARN:
+        return False
+    ml = (message or "").lower()
+    if "api_key_invalid" in ml or "api key not valid" in ml or "invalid api key" in ml:
+        return True
+    if "generativelanguage.googleapis.com" in ml and ("400" in message or "403" in message):
+        return True
+    if "quota" in ml and "exceed" in ml:
+        return True
+    if "permission" in ml and "denied" in ml and "api" in ml:
+        return True
+    return False
+
+
+def _generate_with_gemini_lambda_fallback(question: str) -> str:
+    """
+    Try Gemini; if the key or quota fails but Lambda is configured, answer via Alexa skill.
+    Sets g.last_ask_backend = 'alexa_skill' when falling back (for /ask JSON).
+    """
+    ans = generate_education_answer(question)
+    if ALEXA_LAMBDA_ARN and _should_fallback_to_alexa_after_gemini_failure(ans):
+        try:
+            g.last_ask_backend = "alexa_skill"
+        except RuntimeError:
+            pass
+        app.logger.warning(
+            "Gemini request failed on this host; answered via Alexa skill Lambda instead."
+        )
+        return answer_via_alexa_skill(question)
+    return ans
+
+
 def _region_from_lambda_arn(arn: str) -> str:
     parts = arn.split(":")
     if len(parts) > 3 and parts[2] == "lambda" and parts[3]:
@@ -501,6 +547,11 @@ def answer_for_voice_ui(question: str) -> str:
     - VOICE_ASK_USE_GEMINI=1: all Gemini when Lambda also set (legacy).
     - Else: Lambda if set, else Gemini if configured.
     """
+    try:
+        g.last_ask_backend = None
+    except RuntimeError:
+        pass
+
     bk = voice_ask_backend()
     app.logger.info("/ask backend=%s", bk)
 
@@ -512,7 +563,7 @@ def answer_for_voice_ui(question: str) -> str:
             return arith
         if _web_utterance_unclear(question):
             return UNCLEAR_UTTERANCE_SPEECH
-        return generate_education_answer(question)
+        return _generate_with_gemini_lambda_fallback(question)
 
     if _web_utterance_matches_assistant_identity(question):
         if ALEXA_LAMBDA_ARN and not _voice_ask_prefers_gemini():
@@ -524,11 +575,11 @@ def answer_for_voice_ui(question: str) -> str:
     if _web_utterance_unclear(question):
         return UNCLEAR_UTTERANCE_SPEECH
     if _voice_ask_prefers_gemini():
-        return generate_education_answer(question)
+        return _generate_with_gemini_lambda_fallback(question)
     if ALEXA_LAMBDA_ARN:
         return answer_via_alexa_skill(question)
     if genai and GOOGLE_API_KEY:
-        return generate_education_answer(question)
+        return _generate_with_gemini_lambda_fallback(question)
     if bk == "missing_config":
         app.logger.warning(
             "/ask missing both ALEXA_LAMBDA_ARN and Gemini; set ASK_USE_GEMINI=1 + GOOGLE_API_KEY for local dev"
@@ -1442,7 +1493,7 @@ def ask():
         _bk = "quiz_mode"
     else:
         answer_text = answer_for_voice_ui(question)
-        _bk = voice_ask_backend()
+        _bk = getattr(g, "last_ask_backend", None) or voice_ask_backend()
 
     # Save to history (database)
     interaction = Interaction(session_id=conv_session.id, question=question, answer=answer_text)
