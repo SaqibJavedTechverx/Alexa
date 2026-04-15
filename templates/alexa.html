@@ -330,13 +330,20 @@
     const USE_POLLY_VOICE = {{ use_polly_voice|default(false)|tojson }};
 
     /** Pause after last word before sending (continuous mode needs longer than one-shot) */
-    const SILENCE_MS = 1450;
+    const SILENCE_MS_DESKTOP = 1450;
+    const SILENCE_MS_MOBILE = 1950;
     const MAX_LISTEN_MS = 90000;
     const MAX_ALTERNATIVES = 5;
     /** Let the mic + recognizer open before audio is decoded — reduces dropped first words like "what" */
-    const MIC_WARMUP_MS = 420;
+    const MIC_WARMUP_MS_DESKTOP = 420;
+    const MIC_WARMUP_MS_MOBILE = 750;
     /** After recognition.stop(), Chromium may emit one more onresult with the full line — wait before submit */
     const AFTER_STOP_MS = 140;
+
+    /** Phones / tablets: noisy interim hypotheses often garble short phrases (e.g. "2+2" → "10+ what"). */
+    function isMobileVoiceProfile() {
+        return /Android|iPhone|iPad|iPod|webOS|BlackBerry|IEMobile|Opera Mini/i.test(navigator.userAgent || '');
+    }
 
     /** Match browser / OS locale for English variants (en-IN, en-GB, …) */
     function speechRecognitionLang() {
@@ -372,22 +379,32 @@
         processQuery(q);
     }
 
-    /** Pick best alternative: prefer non-empty transcripts; then highest confidence (Chromium). */
+    /**
+     * Prefer highest-confidence alternative (Chromium). If confidence is missing on all (common on
+     * mobile WebKit), use index 0 — the API’s default best hypothesis.
+     */
     function pickBestAlternative(result) {
         if (!result || result.length === 0) return { transcript: '' };
         let best = null;
         let bestConf = -Infinity;
+        let anyConfidence = false;
         for (let j = 0; j < result.length; j++) {
             const a = result[j];
             const t = (a.transcript || '').trim();
             if (!t.length) continue;
-            const c = typeof a.confidence === 'number' ? a.confidence : 0;
-            if (best == null || c > bestConf) {
-                bestConf = c;
+            const c = typeof a.confidence === 'number' && !Number.isNaN(a.confidence) ? a.confidence : null;
+            if (c !== null) anyConfidence = true;
+            const score = c !== null ? c : -Infinity;
+            if (best == null || score > bestConf) {
+                bestConf = score;
                 best = a;
             }
         }
-        if (best) return best;
+        if (best && anyConfidence) return best;
+        for (let j = 0; j < result.length; j++) {
+            const t = (result[j].transcript || '').trim();
+            if (t.length) return result[j];
+        }
         return result[0];
     }
 
@@ -564,19 +581,26 @@
         finalizedTranscript = '';
 
         recognition = new SpeechRecognition();
+        const mobileVoice = isMobileVoiceProfile();
         recognition.continuous = true;
-        recognition.interimResults = true;
+        // Mobile: interim hypotheses often mix garbage with finals for digits / short math — finals only.
+        recognition.interimResults = !mobileVoice;
         recognition.lang = speechRecognitionLang();
         try {
-            recognition.maxAlternatives = MAX_ALTERNATIVES;
+            recognition.maxAlternatives = mobileVoice ? 3 : MAX_ALTERNATIVES;
         } catch (e) { /* older WebKit may omit */ }
+
+        const silenceMs = mobileVoice ? SILENCE_MS_MOBILE : SILENCE_MS_DESKTOP;
+        const micWarmMs = mobileVoice ? MIC_WARMUP_MS_MOBILE : MIC_WARMUP_MS_DESKTOP;
 
         recognition.onstart = () => {
             isListening = true;
             setOrbState('listening');
             document.getElementById('orb-status').textContent = 'LISTENING';
             document.getElementById('orb-icon').textContent = '🔴';
-            document.getElementById('orb-hint').textContent = 'Speak now. Pause about a second when finished — first words are included after the mic opens.';
+            document.getElementById('orb-hint').textContent = mobileVoice
+                ? 'Speak clearly, then pause ~1 second. On phones, short math is easier if you say the full phrase: “what is two plus two”.'
+                : 'Speak now. Pause about a second when finished — first words are included after the mic opens.';
             if (listenMaxTimer) {
                 clearTimeout(listenMaxTimer);
                 listenMaxTimer = null;
@@ -610,7 +634,7 @@
                 if (epoch !== listenEpoch || isFetchingAnswer || isPlayingAnswer) return;
                 try { if (recognition) recognition.stop(); } catch (e) { /* ignore */ }
                 scheduleFinalizeAfterStop(epoch);
-            }, SILENCE_MS);
+            }, silenceMs);
         };
 
         recognition.onerror = (e) => {
@@ -663,7 +687,7 @@
                 invalidateListenTimers();
                 document.getElementById('orb-hint').textContent = 'Could not start microphone. Tap to try again.';
             }
-        }, MIC_WARMUP_MS);
+        }, micWarmMs);
     }
 
     /** Let the engine flush final hypotheses after stop() before we send text to the server */
