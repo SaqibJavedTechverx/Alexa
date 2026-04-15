@@ -38,7 +38,10 @@ for _k in ("AWS_ACCESS_KEY_ID", "AWS_SECRET_ACCESS_KEY", "AWS_SESSION_TOKEN"):
 if os.getenv("AWS_ACCESS_KEY_ID") and os.getenv("AWS_EC2_METADATA_DISABLED") is None:
     os.environ["AWS_EC2_METADATA_DISABLED"] = "true"
 
-# Optional Gemini fallback only if ASK_USE_GEMINI=1 (local dev without Lambda).
+# Optional Gemini: set ASK_USE_GEMINI=1 and GOOGLE_API_KEY. Use google.generativeai
+# GenerativeModel (not genai.chat.create / OpenAI-style APIs).
+# ASK_GEMINI_FIRST=1 (with ALEXA_LAMBDA_ARN set): answer general questions with Gemini;
+# route skill-style utterances (e.g. "who are you") to the Alexa Lambda via AssistantIdentityIntent.
 GOOGLE_API_KEY = os.getenv("GOOGLE_API_KEY")
 GEMINI_MODEL = os.getenv("GEMINI_MODEL", "gemini-2.0-flash")
 ALEXA_LAMBDA_ARN = os.getenv("ALEXA_LAMBDA_ARN", "").strip()
@@ -50,6 +53,29 @@ if GOOGLE_API_KEY and os.getenv("ASK_USE_GEMINI", "").strip().lower() in ("1", "
         genai.configure(api_key=GOOGLE_API_KEY)
     except ImportError:
         print("google-generativeai package not installed, skipping Gemini fallback")
+
+
+def _voice_ask_gemini_first() -> bool:
+    """
+    Gemini for general Q&A; Alexa Lambda only for skill-specific (custom) intents.
+    Requires ASK_USE_GEMINI, GOOGLE_API_KEY, ALEXA_LAMBDA_ARN, and ASK_GEMINI_FIRST=1.
+    """
+    if not (genai and GOOGLE_API_KEY and ALEXA_LAMBDA_ARN):
+        return False
+    if os.getenv("ASK_USE_GEMINI", "").strip().lower() not in ("1", "true", "yes"):
+        return False
+    return os.getenv("ASK_GEMINI_FIRST", "").strip().lower() in ("1", "true", "yes")
+
+
+def _voice_ask_prefers_gemini() -> bool:
+    """If True, /ask uses Gemini for everything (including identity), even when Lambda is set."""
+    if _voice_ask_gemini_first():
+        return False
+    return (
+        bool(genai and GOOGLE_API_KEY)
+        and os.getenv("ASK_USE_GEMINI", "").strip().lower() in ("1", "true", "yes")
+        and os.getenv("VOICE_ASK_USE_GEMINI", "").strip().lower() in ("1", "true", "yes")
+    )
 
 
 # Keep in sync with alexa_lambda/lambda_function.py ASSISTANT_IDENTITY_SPEECH
@@ -436,6 +462,10 @@ def answer_via_alexa_skill_identity() -> str:
 
 def voice_ask_backend() -> str:
     """Which backend /ask uses: for logs and JSON."""
+    if _voice_ask_gemini_first():
+        return "gemini_first"
+    if _voice_ask_prefers_gemini():
+        return "gemini_fallback"
     if ALEXA_LAMBDA_ARN:
         return "alexa_skill"
     if genai and GOOGLE_API_KEY:
@@ -447,18 +477,35 @@ def ask_backend_label(code: str) -> str:
     """Short human-readable line for UI and API."""
     return {
         "alexa_skill": "Answers: Alexa skill (Lambda)",
-        "gemini_fallback": "Answers: Gemini fallback (no Lambda ARN)",
+        "gemini_first": "Answers: Gemini first; Alexa skill for custom intents",
+        "gemini_fallback": "Answers: Gemini only (no Lambda ARN)",
         "missing_config": "Answers: not configured (set Lambda or ASK_USE_GEMINI)",
         "quiz_mode": "Answers: your quiz (local)",
     }.get(code, code)
 
 
 def answer_for_voice_ui(question: str) -> str:
-    """Prefer Alexa skill Lambda; optional Gemini if ASK_USE_GEMINI=1."""
+    """
+    Routing:
+    - ASK_GEMINI_FIRST=1 + Lambda + Gemini: Gemini for open Q&A; Lambda for skill intents (e.g. identity).
+    - VOICE_ASK_USE_GEMINI=1: all Gemini when Lambda also set (legacy).
+    - Else: Lambda if set, else Gemini if configured.
+    """
     bk = voice_ask_backend()
     app.logger.info("/ask backend=%s", bk)
+
+    if _voice_ask_gemini_first():
+        if _web_utterance_matches_assistant_identity(question):
+            return answer_via_alexa_skill_identity()
+        arith = answer_spoken_arithmetic(question)
+        if arith is not None:
+            return arith
+        if _web_utterance_unclear(question):
+            return UNCLEAR_UTTERANCE_SPEECH
+        return generate_education_answer(question)
+
     if _web_utterance_matches_assistant_identity(question):
-        if ALEXA_LAMBDA_ARN:
+        if ALEXA_LAMBDA_ARN and not _voice_ask_prefers_gemini():
             return answer_via_alexa_skill_identity()
         return ASSISTANT_IDENTITY_SPEECH
     arith = answer_spoken_arithmetic(question)
@@ -466,6 +513,8 @@ def answer_for_voice_ui(question: str) -> str:
         return arith
     if _web_utterance_unclear(question):
         return UNCLEAR_UTTERANCE_SPEECH
+    if _voice_ask_prefers_gemini():
+        return generate_education_answer(question)
     if ALEXA_LAMBDA_ARN:
         return answer_via_alexa_skill(question)
     if genai and GOOGLE_API_KEY:
@@ -1052,9 +1101,10 @@ with app.app_context():
 _bk = voice_ask_backend()
 _msg = {
     "alexa_skill": "ALEXA_LAMBDA_ARN set — /ask uses your Alexa skill Lambda",
+    "gemini_first": "ASK_GEMINI_FIRST — Gemini for Q&A; Lambda for custom skill intents (e.g. identity)",
     "gemini_fallback": "ASK_USE_GEMINI + GOOGLE_API_KEY — /ask uses Gemini (no Lambda ARN)",
     "missing_config": "Neither Lambda nor Gemini configured — /ask will return setup instructions",
-}[_bk]
+}.get(_bk, _bk)
 app.logger.info("Voice /ask: %s (backend=%s)", _msg, _bk)
 
 @login_manager.user_loader

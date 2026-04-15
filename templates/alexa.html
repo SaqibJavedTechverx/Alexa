@@ -135,6 +135,64 @@
         max-width: 340px;
         line-height: 1.45;
     }
+    .stt-context-warning {
+        display: none;
+        width: 100%;
+        max-width: 420px;
+        margin: -8px 0 16px;
+        padding: 12px 14px;
+        border-radius: 12px;
+        font-size: 12px;
+        line-height: 1.45;
+        text-align: left;
+        color: #e8d4a8;
+        background: rgba(255, 180, 60, 0.12);
+        border: 1px solid rgba(255, 200, 100, 0.35);
+    }
+    .voice-text-fallback {
+        width: 100%;
+        max-width: 420px;
+        margin-bottom: 20px;
+        display: flex;
+        flex-direction: column;
+        gap: 8px;
+        text-align: left;
+    }
+    .voice-text-fallback label {
+        font-size: 10px;
+        font-weight: 700;
+        letter-spacing: 0.12em;
+        text-transform: uppercase;
+        color: var(--text-dim);
+    }
+    .voice-text-fallback .row {
+        display: flex;
+        gap: 8px;
+        flex-wrap: wrap;
+    }
+    .voice-text-fallback input[type="text"] {
+        flex: 1;
+        min-width: 160px;
+        padding: 10px 12px;
+        border-radius: 10px;
+        border: 1px solid rgba(255, 255, 255, 0.12);
+        background: rgba(0, 0, 0, 0.25);
+        color: var(--text);
+        font-size: 14px;
+    }
+    .voice-text-fallback button.send-text {
+        padding: 10px 18px;
+        border-radius: 10px;
+        border: none;
+        font-weight: 600;
+        cursor: pointer;
+        background: var(--accent);
+        color: #060a12;
+    }
+    .voice-text-fallback button.send-text:disabled {
+        opacity: 0.5;
+        cursor: not-allowed;
+    }
     .answer-block {
         width: 100%;
         text-align: left;
@@ -218,6 +276,20 @@
 
         <p class="orb-hint" id="orb-hint">Tap the microphone to ask a study question, or say <strong>start quiz</strong> plus your quiz’s voice name (see Quizzes page). Pause when you finish speaking.</p>
 
+        <div class="stt-context-warning" id="stt-context-warning" role="status">
+            <strong>Voice recognition needs a secure page.</strong>
+            Browsers only allow the microphone for speech on <strong>HTTPS</strong> or <strong>http://localhost</strong>.
+            Opening this site as plain <code>http://&lt;server-ip&gt;</code> blocks speech. Use HTTPS (for example nginx + Let’s Encrypt on a domain), or type your question below.
+        </div>
+
+        <div class="voice-text-fallback">
+            <label for="text-question">Or type your question</label>
+            <div class="row">
+                <input type="text" id="text-question" name="text-question" autocomplete="off" placeholder="e.g. What is photosynthesis?" maxlength="2000" />
+                <button type="button" class="send-text" id="btn-send-text">Ask</button>
+            </div>
+        </div>
+
         <div class="user-line">
             <div class="user-line-label">You</div>
             <div class="user-line-text" id="user-transcript">—</div>
@@ -248,6 +320,8 @@
     /** Bumps on each new listen or stop — invalidates silence / max timers */
     let listenEpoch = 0;
     let lastTranscript = '';
+    /** Finalized text for this listen session (see onresult — avoids duplicate words from overlapping segments). */
+    let finalizedTranscript = '';
     let listenMaxTimer = null;
     let micWarmupTimer = null;
 
@@ -271,6 +345,33 @@
         return 'en-US';
     }
 
+    function hostnameIsLocalHost() {
+        const h = location.hostname;
+        return h === 'localhost' || h === '127.0.0.1' || h === '[::1]';
+    }
+
+    /**
+     * Chromium limits the Web Speech API to secure contexts (HTTPS), with http://localhost
+     * treated as secure. Plain http://&lt;ip&gt; (e.g. EC2) is not — speech will not work.
+     */
+    function canUseBrowserSpeechRecognition() {
+        const SR = window.SpeechRecognition || window.webkitSpeechRecognition;
+        if (!SR) return false;
+        if (window.isSecureContext) return true;
+        return hostnameIsLocalHost();
+    }
+
+    function submitTextQuestion() {
+        if (isFetchingAnswer || isPlayingAnswer) return;
+        const el = document.getElementById('text-question');
+        const q = (el && el.value ? el.value : '').trim();
+        if (!q.length) return;
+        el.value = '';
+        document.getElementById('user-transcript').textContent = q;
+        invalidateListenTimers();
+        processQuery(q);
+    }
+
     /** Pick best alternative: prefer non-empty transcripts; then highest confidence (Chromium). */
     function pickBestAlternative(result) {
         if (!result || result.length === 0) return { transcript: '' };
@@ -290,19 +391,6 @@
         return result[0];
     }
 
-    /**
-     * Merge every segment. Join with spaces so "what"+"is" never becomes "whatis".
-     * event.results is the full snapshot for this utterance (continuous mode).
-     */
-    function fullTranscriptFromResults(results) {
-        if (!results || !results.length) return '';
-        const parts = [];
-        for (let i = 0; i < results.length; i++) {
-            const t = (pickBestAlternative(results[i]).transcript || '').trim();
-            if (t.length) parts.push(t);
-        }
-        return parts.join(' ').replace(/\s{2,}/g, ' ').trim();
-    }
 
     /** Console only — no backend / speech hints on the page */
     function logAskBackend(data) {
@@ -326,6 +414,25 @@
             "| code:",
             INITIAL_ASK_BACKEND || "?"
         );
+        if (!canUseBrowserSpeechRecognition()) {
+            const banner = document.getElementById('stt-context-warning');
+            if (banner) banner.style.display = 'block';
+            document.getElementById('orb-hint').textContent =
+                'Mic speech is unavailable on plain HTTP. Type your question below, or serve this app over HTTPS.';
+            console.warn('[Voice] SpeechRecognition blocked: need HTTPS or localhost (isSecureContext=', window.isSecureContext, ')');
+        }
+        const btnSend = document.getElementById('btn-send-text');
+        const textQ = document.getElementById('text-question');
+        if (btnSend) btnSend.addEventListener('click', submitTextQuestion);
+        if (textQ) {
+            textQ.addEventListener('keydown', (ev) => {
+                if (ev.key === 'Enter') {
+                    ev.preventDefault();
+                    submitTextQuestion();
+                }
+            });
+        }
+
         fetchSessionStats();
 
         const continueSessionId = localStorage.getItem('continueSessionId');
@@ -429,6 +536,13 @@
 
     function startListening() {
         if (isFetchingAnswer || isPlayingAnswer) return;
+        if (!canUseBrowserSpeechRecognition()) {
+            document.getElementById('orb-hint').textContent =
+                'Speech is not available on this URL (use HTTPS or localhost). Type your question below.';
+            const tq = document.getElementById('text-question');
+            if (tq) tq.focus();
+            return;
+        }
         const SpeechRecognition = window.SpeechRecognition || window.webkitSpeechRecognition;
         if (!SpeechRecognition) {
             document.getElementById('orb-hint').textContent = 'Speech recognition is not supported in this browser.';
@@ -447,6 +561,7 @@
 
         const epoch = listenEpoch;
         lastTranscript = '';
+        finalizedTranscript = '';
 
         recognition = new SpeechRecognition();
         recognition.continuous = true;
@@ -475,10 +590,21 @@
 
         recognition.onresult = (event) => {
             if (epoch !== listenEpoch) return;
-            const text = fullTranscriptFromResults(event.results);
-            if (!text) return;
-            lastTranscript = text;
-            document.getElementById('user-transcript').textContent = text;
+            let interim = '';
+            for (let i = event.resultIndex; i < event.results.length; i++) {
+                const res = event.results[i];
+                const t = (pickBestAlternative(res).transcript || '').trim();
+                if (!t.length) continue;
+                if (res.isFinal) {
+                    finalizedTranscript += (finalizedTranscript ? ' ' : '') + t;
+                } else {
+                    interim += (interim ? ' ' : '') + t;
+                }
+            }
+            const shown = (finalizedTranscript + (interim ? ' ' + interim : '')).replace(/\s{2,}/g, ' ').trim();
+            if (!shown) return;
+            lastTranscript = shown;
+            document.getElementById('user-transcript').textContent = shown;
             clearTimeout(silenceTimer);
             silenceTimer = setTimeout(() => {
                 if (epoch !== listenEpoch || isFetchingAnswer || isPlayingAnswer) return;
@@ -494,6 +620,14 @@
             if (e.error === 'no-speech' || e.error === 'audio-capture') {
                 setOrbState('stopped');
                 document.getElementById('orb-hint').textContent = 'No speech heard. Check the mic permission, reduce background noise, and tap to try again.';
+                document.getElementById('orb-icon').textContent = '🎙️';
+                document.getElementById('orb-status').textContent = 'READY';
+                return;
+            }
+            if (e.error === 'not-allowed') {
+                setOrbState('');
+                document.getElementById('orb-hint').textContent =
+                    'Microphone blocked. Allow the mic for this site in the browser settings, or type your question below.';
                 document.getElementById('orb-icon').textContent = '🎙️';
                 document.getElementById('orb-status').textContent = 'READY';
                 return;
